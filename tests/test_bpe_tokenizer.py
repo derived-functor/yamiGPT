@@ -3,7 +3,7 @@ import pytest
 from yamigpt.tokenizers import BPETokenizer
 from .data.tokens import tokenized_text
 
-VOCAB_SIZE = 265
+VOCAB_SIZE = 270
 
 class TestBPETokenizer:
     
@@ -46,6 +46,7 @@ class TestBPETokenizer:
         print(text)
 
         tokens = tokenizer.tokenize(text)
+        print("Tokens:\n", tokens)
 
         assert tokens
 

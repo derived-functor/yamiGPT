@@ -4,15 +4,12 @@ from abc import ABC, abstractmethod
 from collections.abc import Sized
 from typing import Any
 
+
 class AbstractTokenizer[TokensType](ABC, Sized):
     """Abstract base class for tokenizer"""
 
     @abstractmethod
-    def fit(
-        self,
-        corpus: list[str],
-        **kwargs: Any
-    ) -> None:
+    def fit(self, corpus: list[str], **kwargs: Any) -> None:
         """Fit tokenizer to corpus of texts
 
         :param corpus: corpus of texts to train on.
@@ -22,11 +19,7 @@ class AbstractTokenizer[TokensType](ABC, Sized):
         """
 
     @abstractmethod
-    def tokenize(
-        self,
-        text: str,
-        **kwargs: Any
-    ) -> list[TokensType]:
+    def tokenize(self, text: str, **kwargs: Any) -> list[TokensType]:
         """Tokenizing text
 
         :param text: text to tokenize.
@@ -35,10 +28,7 @@ class AbstractTokenizer[TokensType](ABC, Sized):
         """
 
     @abstractmethod
-    def decode(
-        self,
-        tokens: list[TokensType]
-    ) -> str:
+    def decode(self, tokens: list[TokensType]) -> str:
         """Decoding tokens back to text
 
         :param tokens: tokens from that specific tokenizer

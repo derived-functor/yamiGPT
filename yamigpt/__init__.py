@@ -2,6 +2,4 @@
 
 from .tokenizers import BPETokenizer
 
-__all__ = [
-    "BPETokenizer"
-]
+__all__ = ["BPETokenizer"]

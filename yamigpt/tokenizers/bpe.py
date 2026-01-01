@@ -1,38 +1,58 @@
 """Byte-Pair Encoding tokenizer"""
 
-import unicodedata
 import json
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
 from .abc import AbstractTokenizer
 
 type PairOfTokens = tuple[int, int]
 
+
 class BPETokenizer(AbstractTokenizer[int]):
     """Byte-Pair Encoding tokenizer"""
+
+    TOKENS_DELTA = 4
 
     def __init__(
         self,
         vocab_size: int,
     ):
-        if vocab_size < 256:
-            raise ValueError("Vocab size should be at least 256")
+        if vocab_size < 256 + self.TOKENS_DELTA:
+            raise ValueError(f"Vocab size should be at least {256 + self.TOKENS_DELTA}")
         self._vocab_size = vocab_size
         # list of tuples with structure:
         # (pair_to_merge, id_to_merge_with)
-        self._merges: list[
-            tuple[PairOfTokens, int]
-        ] = []
+        self._merges: list[tuple[PairOfTokens, int]] = []
         # vocabulary: token -> id
         self._vocab: dict[tuple[int, ...], int] = {}
         # inverse of vocabulary: id -> token
         self._id_to_token: dict[int, tuple[int, ...]] = {}
 
-        # first 255 unicode bytes
+        self.pad_id = 0
+        self.unk_id = 1
+        self.bos_id = 2
+        self.eos_id = 3
+
+        self.special_tokens_ids = {self.pad_id, self.unk_id, self.bos_id, self.eos_id}
+
+        self._vocab[(-1,)] = self.pad_id
+        self._vocab[(-2,)] = self.unk_id
+        self._vocab[(-3,)] = self.bos_id
+        self._vocab[(-4,)] = self.eos_id
+
+        self._id_to_token[self.pad_id] = (-1,)
+        self._id_to_token[self.unk_id] = (-2,)
+        self._id_to_token[self.bos_id] = (-3,)
+        self._id_to_token[self.eos_id] = (-4,)
+
+        # first 255 utf bytes
         for i in range(256):
-            self._vocab[(i,)] = i
-            self._id_to_token[i] = (i,)
+            token_id = i + self.TOKENS_DELTA
+            self._vocab[(i,)] = token_id
+            self._id_to_token[token_id] = (i,)
 
     @property
     def vocab_size(self) -> int:
@@ -46,18 +66,16 @@ class BPETokenizer(AbstractTokenizer[int]):
     def merges(self) -> list[tuple[PairOfTokens, int]]:
         return self._merges
 
-    def tokenize(
-        self,
-        text: str,
-        **kwargs: Any
-    ) -> list[int]:
+    def tokenize(self, text: str, **kwargs: Any) -> list[int]:
         """Tokenizes text using BPE algorithm
 
         :param text: text to tokenize.
-        :param kwargs: additional params. Unused.
+        :param kwargs: additional params.
+            `add_special_tokens` may be provided. Default - True
 
         :return: list of tokens as bytes.
         """
+        add_special_tokens = kwargs.get("add_special_tokens", True)
 
         tokens = self.preprocess(text)
 
@@ -66,7 +84,7 @@ class BPETokenizer(AbstractTokenizer[int]):
             result = []
 
             while i < len(tokens):
-                if i < len(tokens) - 1 and (tokens[i], tokens[i + 1]) == (a,b):
+                if i < len(tokens) - 1 and (tokens[i], tokens[i + 1]) == (a, b):
                     result.append(new_token)
                     i += 2
                 else:
@@ -75,7 +93,29 @@ class BPETokenizer(AbstractTokenizer[int]):
 
             tokens = result
 
+        if add_special_tokens:
+            tokens = [self.bos_id] + tokens + [self.eos_id]
+
         return tokens
+
+    def decode(self, tokens: list[int], skip_special_tokens: bool = True) -> str:
+        """Decodes tokens back to text"""
+        bytes_seq: list[int] = []
+
+        for token in tokens:
+            if skip_special_tokens and token in self.special_tokens_ids:
+                continue
+
+            if token not in self._id_to_token:
+                token = self.unk_id
+
+            token_bytes = self._id_to_token[token]
+
+            for b in token_bytes:
+                if b >= 0:
+                    bytes_seq.append(b)
+
+        return bytes(bytes_seq).decode("utf-8", "replace")
 
     def fit(self, corpus: list[str], **kwargs: Any) -> None:
         """Fits tokenizer for specific corpus of texts
@@ -89,14 +129,13 @@ class BPETokenizer(AbstractTokenizer[int]):
         for text in corpus:
             seqs.append(self.preprocess(text))
 
-        next_id = 256 # first 255 bytes are reserved for unicode
+        next_id = len(self._vocab) + len(self.special_tokens_ids)
 
         i = 0
         while next_id < self._vocab_size:
             print("Iteration", i)
             print(f"\tCurrent vocab size: {next_id + 1}/{self._vocab_size}")
             stats = self._get_pair_statistics(seqs)
-
 
             if not stats:
                 print("No more pairs left. Vocab size:", next_id)
@@ -109,6 +148,7 @@ class BPETokenizer(AbstractTokenizer[int]):
 
             # updating mappings
             new_token = self._id_to_token[pair[0]] + self._id_to_token[pair[1]]
+            print("\tNew token:", new_token)
 
             self._vocab[new_token] = next_id
             self._id_to_token[next_id] = new_token
@@ -117,17 +157,21 @@ class BPETokenizer(AbstractTokenizer[int]):
             next_id += 1
             i += 1
 
-    def decode(
-        self,
-        tokens: list[int],
-    ) -> str:
-        """Decodes tokens back to text"""
-        bytes_seq: list[int] = []
+    def preprocess(self, text: str) -> list[int]:
+        """Preprocess text for tokenization
 
-        for token in tokens:
-            bytes_seq.extend(self._id_to_token[token])
+        Performs unicode normalization and utf-8 encoding.
 
-        return bytes(bytes_seq).decode("utf-8", "replace")
+        :param text: text to preprocess
+
+        :return: list of initial tokens
+        """
+
+        text = unicodedata.normalize("NFKC", text)
+        byte_values = list(text.encode("utf-8"))
+        tokens = [b + self.TOKENS_DELTA for b in byte_values]
+
+        return tokens
 
     def save(self, checkpoint_path: str | Path) -> None:
         """Saves tokenizer state as json
@@ -139,20 +183,14 @@ class BPETokenizer(AbstractTokenizer[int]):
         state = {
             "vocab_size": self._vocab_size,
             "merges": [
-                {
-                    "pair": [a, b],
-                    "new_id": new_id
-                }
-                for (a,b), new_id in self._merges
+                {"pair": [a, b], "new_id": new_id} for (a, b), new_id in self._merges
             ],
             "vocab": {
-                ",".join(map(str, token)): idx
-                for token, idx in self._vocab.items()
+                ",".join(map(str, token)): idx for token, idx in self._vocab.items()
             },
             "id_to_token": {
-                str(idx): list(token)
-                for idx, token in self._id_to_token.items()
-            }
+                str(idx): list(token) for idx, token in self._id_to_token.items()
+            },
         }
 
         with open(checkpoint_path, "w", encoding="utf-8") as f:
@@ -169,18 +207,15 @@ class BPETokenizer(AbstractTokenizer[int]):
         tokenizer = cls(vocab_size=data.get("vocab_size"))
 
         tokenizer._merges = [
-            ((m["pair"][0], m["pair"][1]), m["new_id"])
-            for m in data.get("merges")
+            ((m["pair"][0], m["pair"][1]), m["new_id"]) for m in data.get("merges")
         ]
 
         tokenizer._vocab = {
-            tuple(map(int, k.split(","))): v
-            for k, v in data.get("vocab").items()
+            tuple(map(int, k.split(","))): v for k, v in data.get("vocab").items()
         }
 
         tokenizer._id_to_token = {
-            int(idx): tuple(token)
-            for idx, token in data.get("id_to_token").items()
+            int(idx): tuple(token) for idx, token in data.get("id_to_token").items()
         }
 
         return tokenizer
@@ -189,7 +224,7 @@ class BPETokenizer(AbstractTokenizer[int]):
         """Makes statistics of pairs in tokens list
 
         :param tokens: tokens to get statistics of.
-        
+
         :return: counter of pairs.
         """
         pairs: list[PairOfTokens] = []
@@ -208,10 +243,7 @@ class BPETokenizer(AbstractTokenizer[int]):
         return count
 
     def _merge_pair(
-        self,
-        seqs: list[list[int]],
-        pair: PairOfTokens,
-        next_id: int
+        self, seqs: list[list[int]], pair: PairOfTokens, next_id: int
     ) -> list[list[int]]:
         """Merges pair of tokens in tokens list
 
@@ -230,7 +262,7 @@ class BPETokenizer(AbstractTokenizer[int]):
 
             while i < len(seq):
 
-                if i < len(seq) - 1 and (seq[i], seq[i+1]) == pair:
+                if i < len(seq) - 1 and (seq[i], seq[i + 1]) == pair:
                     result.append(next_id)
 
                     i += 2
@@ -242,21 +274,6 @@ class BPETokenizer(AbstractTokenizer[int]):
 
         return new_seqs
 
-    def preprocess(self, text: str) -> list[int]:
-        """Preprocess text for tokenization
-
-        Performs unicode normalization and utf-8 encoding.
-
-        :param text: text to preprocess
-
-        :return: list of initial tokens
-        """
-
-        text = unicodedata.normalize("NFKC", text)
-        tokens = list(text.encode("utf-8"))
-
-        return tokens
-
     def __len__(self) -> int:
         """Returns length of vocabulary"""
-        return len(self._vocab.keys())
+        return len(self._vocab) + self.TOKENS_DELTA
