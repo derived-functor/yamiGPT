@@ -2,10 +2,11 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Sized
-from typing import Any
+from typing import Any, TypeVar, Generic
 
+TokensType = TypeVar("TokenType")
 
-class AbstractTokenizer[TokensType](ABC, Sized):
+class AbstractTokenizer(ABC, Sized, Generic[TokensType]):
     """Abstract base class for tokenizer"""
 
     @abstractmethod

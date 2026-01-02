@@ -8,7 +8,7 @@ from typing import Any
 
 from .abc import AbstractTokenizer
 
-type PairOfTokens = tuple[int, int]
+PairOfTokens = tuple[int, int]
 
 
 class BPETokenizer(AbstractTokenizer[int]):
@@ -199,7 +199,7 @@ class BPETokenizer(AbstractTokenizer[int]):
         print("State saved to", checkpoint_path)
 
     @classmethod
-    def load(cls, checkpoint_path: str | Path) -> BPETokenizer:
+    def load(cls, checkpoint_path: str | Path) -> "BPETokenizer":
         """Loads tokenizer from json checkpoint"""
         with open(checkpoint_path, "r", encoding="utf-8") as f:
             data = json.load(f)
